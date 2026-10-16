@@ -9,12 +9,29 @@ find_package(rcl_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(livox_ros_driver2 REQUIRED)
+find_package(pcl_conversions REQUIRED)
+find_package(pcl_ros REQUIRED)
+find_package(PCL REQUIRED)
+find_package(Eigen3 REQUIRED)
 find_package(std_srvs REQUIRED)
 add_executable(mapping_node src/main.cpp src/mapping_node.cpp)
 add_executable(map_processor_node src/map_processor_node.cpp)
 foreach(target mapping_node map_processor_node)
-  target_include_directories(${target} PRIVATE include)
-  ament_target_dependencies(${target} rclcpp rcl_interfaces sensor_msgs nav_msgs geometry_msgs std_srvs)
+target_include_directories(${target}
+  PRIVATE
+  include
+)
+  ament_target_dependencies(${target}
+   rclcpp
+  rcl_interfaces
+  sensor_msgs
+  nav_msgs
+  geometry_msgs
+  std_srvs
+  livox_ros_driver2
+  pcl_conversions
+  pcl_ros)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
   endif()
