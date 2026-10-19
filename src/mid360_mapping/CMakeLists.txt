@@ -8,11 +8,12 @@ find_package(rclcpp REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(livox_ros_driver2 REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(pcl_ros REQUIRED)
-find_package(PCL REQUIRED)
+find_package(PCL REQUIRED COMPONENTS common filters io)
 find_package(Eigen3 REQUIRED)
 find_package(std_srvs REQUIRED)
 add_executable(mapping_node src/main.cpp src/mapping_node.cpp)
@@ -27,6 +28,7 @@ target_include_directories(${target}
   rcl_interfaces
   sensor_msgs
   nav_msgs
+  std_msgs
   geometry_msgs
   std_srvs
   livox_ros_driver2
@@ -35,6 +37,11 @@ target_include_directories(${target}
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
   endif()
+endforeach()
+
+foreach(target mapping_node map_processor_node)
+  target_include_directories(${target} SYSTEM PRIVATE ${PCL_INCLUDE_DIRS})
+  target_link_libraries(${target} ${PCL_LIBRARIES})
 endforeach()
 install(TARGETS mapping_node map_processor_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config rviz DESTINATION share/${PROJECT_NAME})

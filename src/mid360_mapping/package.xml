@@ -2,14 +2,15 @@
 <package format="3">
   <name>mid360_mapping</name>
   <version>0.1.0</version>
-  <description>Assignment 5 scaffold: MID-360 mapping and map processing.</description>
-  <maintainer email="replace-me@example.com">Replace with your name</maintainer>
+  <description>MID-360 FAST-LIO mapping and 2D occupancy map processing.</description>
+  <maintainer email="848046548@qq.com">taoyuchen</maintainer>
   <license>MIT</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>rclcpp</depend>
   <depend>rcl_interfaces</depend>
   <depend>sensor_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>livox_ros_driver2</depend>
   <depend>pcl_conversions</depend>
@@ -22,5 +23,6 @@
   <exec_depend>rosbag2_storage_default_plugins</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>fast_lio</exec_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

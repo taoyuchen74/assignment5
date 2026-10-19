@@ -1,89 +1,119 @@
 #include "mid360_mapping/mapping_node.hpp"
-#include <chrono>
+
+#include <filesystem>
 #include <stdexcept>
 #include <string>
-#include <rcl_interfaces/msg/parameter_descriptor.hpp>
+#include <utility>
+
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl_conversions/pcl_conversions.h>
 
 namespace mid360_mapping
 {
-MappingNode::MappingNode() : Node("mapping_node")
+MappingNode::MappingNode()
+: Node("mapping_node")
 {
-  rcl_interfaces::msg::ParameterDescriptor startup;
-  startup.read_only = true;
-  startup.description = "Startup setting; restart the node after changing configuration";
-  const auto input_type = declare_parameter<std::string>("input_type", "pointcloud2", startup);
-  const auto lidar_topic = declare_parameter<std::string>("lidar_topic", "/livox/lidar", startup);
-  const auto imu_topic = declare_parameter<std::string>("imu_topic", "/livox/imu", startup);
-  declare_parameter<std::string>("map_frame", "map", startup);
-  declare_parameter<std::string>("body_frame", "body", startup);
-  declare_parameter<std::string>("map_output_path", "", startup);
-  if (lidar_topic.empty() || imu_topic.empty()) {
-    throw std::invalid_argument("lidar_topic and imu_topic must not be empty");
+  const auto source_map_topic =
+    declare_parameter<std::string>("fast_lio_map_topic", "/Laser_map");
+  const auto source_registered_topic =
+    declare_parameter<std::string>("fast_lio_registered_topic", "/cloud_registered");
+  const auto source_odom_topic =
+    declare_parameter<std::string>("fast_lio_odom_topic", "/Odometry");
+  const auto source_path_topic =
+    declare_parameter<std::string>("fast_lio_path_topic", "/path");
+  map_output_path_ =
+    declare_parameter<std::string>("map_output_path", "maps/fastlio_map_from_bag.pcd");
+
+  if (source_map_topic.empty() || source_registered_topic.empty() ||
+      source_odom_topic.empty() || source_path_topic.empty() ||
+      map_output_path_.empty()) {
+    throw std::invalid_argument("Mapping bridge topics and output path must not be empty");
   }
 
-  if (input_type == "pointcloud2") {
-    cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
-      lidar_topic, rclcpp::SensorDataQoS().keep_last(10),
-      [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {on_cloud(msg);});
-  } else if (input_type == "livox_custom") {
-    // A generic subscription avoids a compile-time Livox SDK dependency in the scaffold.
-    // The livox_ros_driver2 message type support must still be installed and sourced.
-    custom_sub_ = create_generic_subscription(
-      lidar_topic, "livox_ros_driver2/msg/CustomMsg", rclcpp::SensorDataQoS().keep_last(10),
-      [this](std::shared_ptr<rclcpp::SerializedMessage> msg) {on_custom_cloud(msg);});
-  } else {
-    throw std::invalid_argument("input_type must be pointcloud2 or livox_custom");
-  }
-  imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-    imu_topic, rclcpp::SensorDataQoS().keep_last(1000),
-    [this](sensor_msgs::msg::Imu::ConstSharedPtr msg) {on_imu(msg);});
-
-  // These are output contracts, not an implemented mapping pipeline.
-  map_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("mapping/map", rclcpp::SensorDataQoS());
+  map_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+    "/mapping/map", rclcpp::QoS(1).reliable().transient_local());
   registered_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-    "mapping/cloud_registered", rclcpp::SensorDataQoS());
-  odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("mapping/odom", 10);
-  path_pub_ = create_publisher<nav_msgs::msg::Path>("mapping/path", 10);
-  save_service_ = create_service<std_srvs::srv::Trigger>(
-    "mapping/save_map",
-    [](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
-      std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-      // TODO: Save the accumulated map to map_output_path and report the actual result.
-      response->success = false;
-      response->message = "Scaffold only: map storage is not implemented";
+    "/mapping/cloud_registered", rclcpp::SensorDataQoS());
+  odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/mapping/odom", 10);
+  path_pub_ = create_publisher<nav_msgs::msg::Path>(
+    "/mapping/path", rclcpp::QoS(1).reliable().transient_local());
+
+  map_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
+    source_map_topic, rclcpp::QoS(1).reliable(),
+    [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {
+      latest_map_ = msg;
+      map_pub_->publish(*msg);
     });
-  status_timer_ = create_wall_timer(std::chrono::seconds(5), [this]() {
-    RCLCPP_INFO(
-      get_logger(), "Scaffold only: clouds=%llu imu=%llu; no map or pose is produced",
-      static_cast<unsigned long long>(cloud_count_),
-      static_cast<unsigned long long>(imu_count_));
-  });
-  RCLCPP_WARN(get_logger(), "Implement the mapping TODOs before using this as a mapper");
+  registered_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
+    source_registered_topic, rclcpp::SensorDataQoS(),
+    [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {
+      registered_pub_->publish(*msg);
+    });
+  odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+    source_odom_topic, 10,
+    [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {
+      odom_pub_->publish(*msg);
+    });
+  path_sub_ = create_subscription<nav_msgs::msg::Path>(
+    source_path_topic, 10,
+    [this](nav_msgs::msg::Path::ConstSharedPtr msg) {
+      path_pub_->publish(*msg);
+    });
+
+  save_service_ = create_service<std_srvs::srv::Trigger>(
+    "/mapping/save_map",
+    [this](
+      const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+      std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+      saveMap(request, std::move(response));
+    });
+
+  RCLCPP_INFO(
+    get_logger(),
+    "FAST-LIO bridge ready: map=%s odom=%s path=%s; PCD=%s",
+    source_map_topic.c_str(), source_odom_topic.c_str(),
+    source_path_topic.c_str(), map_output_path_.c_str());
 }
 
-void MappingNode::on_cloud(sensor_msgs::msg::PointCloud2::ConstSharedPtr message)
+void MappingNode::saveMap(
+  const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+  std::shared_ptr<std_srvs::srv::Trigger::Response> response)
 {
-  ++cloud_count_;
-  (void)message;
-  // TODO: Read actual point fields and units, including per-point acquisition times.
-  // TODO: Connect to your chosen mapping backend; preserve sensor timestamps and frames.
-}
+  (void)request;
+  if (!latest_map_) {
+    response->success = false;
+    response->message = "No FAST-LIO map has arrived yet.";
+    return;
+  }
 
-void MappingNode::on_custom_cloud(std::shared_ptr<rclcpp::SerializedMessage> message)
-{
-  ++cloud_count_;
-  (void)message;
-  // TODO: Replace serialized-message reception with a typed Livox input adapter.
-  // Declare livox_ros_driver2 in package.xml and CMake when using its C++ message type.
-  // TODO: Preserve timebase, offset_time, reflectivity, tag and line as needed by your backend.
-}
+  try {
+    pcl::PointCloud<pcl::PointXYZINormal> cloud;
+    pcl::fromROSMsg(*latest_map_, cloud);
+    if (cloud.empty()) {
+      response->success = false;
+      response->message = "The latest FAST-LIO map is empty.";
+      return;
+    }
 
-void MappingNode::on_imu(sensor_msgs::msg::Imu::ConstSharedPtr message)
-{
-  ++imu_count_;
-  (void)message;
-  // TODO: Check the recorded units/frame and handle the IMU data in your mapping backend.
-  // TODO: Publish estimated poses, transforms, registered clouds and an accumulated map.
-  // Counts alone are not synchronization, deskewing or mapping.
+    const std::filesystem::path output_path(map_output_path_);
+    if (!output_path.parent_path().empty()) {
+      std::filesystem::create_directories(output_path.parent_path());
+    }
+    if (pcl::io::savePCDFileBinary(output_path.string(), cloud) != 0) {
+      throw std::runtime_error("PCL could not write " + output_path.string());
+    }
+
+    response->success = true;
+    response->message =
+      "Saved " + std::to_string(cloud.size()) + " points to " +
+      output_path.string();
+    RCLCPP_INFO(get_logger(), "%s", response->message.c_str());
+  } catch (const std::exception & error) {
+    response->success = false;
+    response->message = error.what();
+    RCLCPP_ERROR(get_logger(), "Map save failed: %s", error.what());
+  }
 }
 }  // namespace mid360_mapping

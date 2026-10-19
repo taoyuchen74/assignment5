@@ -4,47 +4,63 @@ Panels:
 Visualization Manager:
   Class: ""
   Global Options:
-    Fixed Frame: map
-    Frame Rate: 30
+    Fixed Frame: camera_init
+    Frame Rate: 20
   Displays:
     - Class: rviz_default_plugins/Grid
-      Name: Grid
+      Name: Ground Grid
       Enabled: true
+      Plane: XY
     - Class: rviz_default_plugins/PointCloud2
-      Name: Accumulated Map
+      Name: Filtered 3D Map
       Enabled: true
       Topic:
-        Value: /mapping/map
-        Reliability Policy: Best Effort
-        Durability Policy: Volatile
+        Value: /mapping/map_filtered
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
         Depth: 5
-      Color Transformer: Intensity
+      Color Transformer: FlatColor
       Style: Points
       Size (Pixels): 2
-    - Class: rviz_default_plugins/Path
-      Name: Trajectory
-      Enabled: true
-      Topic:
-        Value: /mapping/path
-        Reliability Policy: Reliable
-        Durability Policy: Volatile
-        Depth: 10
+      Color:
+        R: 50
+        G: 180
+        B: 90
+        A: 255
     - Class: rviz_default_plugins/Map
-      Name: Projected Occupancy Grid
-      Enabled: false
+      Name: 2D Occupancy Grid
+      Enabled: true
       Topic:
         Value: /mapping/map_2d
         Reliability Policy: Reliable
         Durability Policy: Transient Local
         Depth: 1
+      Alpha: 0.75
+      Color Scheme: map
+    - Class: rviz_default_plugins/Path
+      Name: FAST-LIO Trajectory
+      Enabled: true
+      Topic:
+        Value: /mapping/path
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        Depth: 10
+    - Class: rviz_default_plugins/Odometry
+      Name: FAST-LIO Odometry
+      Enabled: false
+      Topic:
+        Value: /mapping/odom
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        Depth: 10
     - Class: rviz_default_plugins/TF
       Name: TF
-      Enabled: false
+      Enabled: true
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 20
-      Pitch: 0.6
+      Distance: 35
+      Pitch: 0.9
       Yaw: 0.8
 Window Geometry:
   Width: 1280

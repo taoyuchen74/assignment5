@@ -17,3 +17,11 @@ maps/*
 *.ply
 
 *.zip
+src/FAST_LIO_ROS2/
+src/livox_ros_driver2/
+
+# Keep the generated maps required for the assignment submission.
+!maps/fastlio_map_from_bag.pcd
+!maps/cleaned_map.pcd
+!maps/map.pgm
+!maps/map.yaml
